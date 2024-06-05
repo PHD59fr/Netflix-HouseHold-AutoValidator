@@ -21,7 +21,7 @@ func openLinkWithRod(body, netflixEmail, netflixPassword string, config Config) 
 			page := browser.MustPage(link)
 			page.MustWaitLoad()
 
-			loginElement, err := page.Timeout(10 * time.Second).Element(`input[name='userLoginId']`)
+			loginElement, err := page.Timeout(time.Second).Element(`input[name='userLoginId']`)
 			if err == nil {
 				if config.FilterByAccount && netflixEmail != "" && netflixPassword != "" {
 					logrus.Info("Login fields detected, attempting to log in...")
@@ -37,15 +37,13 @@ func openLinkWithRod(body, netflixEmail, netflixPassword string, config Config) 
 				}
 			}
 
-			element, err := page.Timeout(10 * time.Second).Element(`#appMountPoint > div > div > div > div.bd > div > div > div > div:nth-child(1) > h1`)
+			element, err := page.Timeout(time.Second).Element(`#appMountPoint > div > div > div > div.bd > div > div > div > div:nth-child(1) > h1`)
 			if err == nil {
 				text, _ := element.Text()
 				if strings.Contains(text, config.ExpiredLinkMessage) {
 					logrus.Info("Link expired")
 				}
 			}
-
-			page.MustWaitLoad()
 			page.MustElement(`[data-uia="set-primary-location-action"]`).MustClick()
 
 			logrus.Info("Verification email end page opened")
