@@ -8,13 +8,6 @@ This application monitors an IMAP mailbox for emails from Netflix links. It is d
 **Edit the `config.yaml` file at the root of the project with the following structure:**
 
    ```yaml
-   netflixAuth:
-     - email: "your-netflix-email@example.com" #Optional
-       password: "your-netflix-password" #Optional
-     - email: "your-netflix-email2@example.com" #Optional
-       password: "your-netflix-password2" #Optional
-
-   filterByAccount: false # if true, the application will only process emails that match the email addresses in the netflixAuth section
    email:
      imap: "imap.example.com:993"
      login: "your-email@example.com"
@@ -24,6 +17,13 @@ This application monitors an IMAP mailbox for emails from Netflix links. It is d
    expiredLinkMessage: "Ce lien n'est plus valide"
    targetFrom: "info@account.netflix.com"
    targetSubject: "Important : comment mettre à jour votre foyer Netflix"
+
+   filterByAccount: false # if true, the application will only process emails that match the email addresses in the netflixAuth section
+   netflixAuth:
+     - email: "your-netflix-email@example.com" #Optional
+       password: "your-netflix-password" #Optional
+     - email: "your-netflix-email2@example.com" #Optional
+       password: "your-netflix-password2" #Optional
    ```
 
    **Note:** Make sure to replace the values with your own information.
