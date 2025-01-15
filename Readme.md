@@ -38,6 +38,9 @@ go run main.go
 
 The application will connect to the specified mailbox in the configuration file, search for unread emails with the specified subject, and attempt to open Netflix verification links contained in these emails.
 
+## 🐳 Docker
+Find the Docker image to pull: [Netflix Household Auto-Validator Docker Image](https://hub.docker.com/r/phd59fr/netflix-household-autovalidator)
+
 ## 📂 Code Structure
 
 - `main.go`: Main entry point of the application. Loads the configuration and starts the main loop.

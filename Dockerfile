@@ -9,7 +9,7 @@ RUN apk add --no-cache upx chromium libstdc++ libx11 libxcomposite libxrandr lib
     upx --best --lzma netflix-household-autovalidator
 
 
-FROM debian:bookworm-slim
+FROM debian:stable-slim
 
 WORKDIR /
 
