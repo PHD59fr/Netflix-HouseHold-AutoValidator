@@ -4,24 +4,22 @@ import (
 	"os"
 	"time"
 
-	"github.com/sirupsen/logrus"
 	"gopkg.in/yaml.v2"
 )
 
 type Config struct {
-	NetflixAuth        []NetflixAccount `yaml:"netflixAuth"`
-	FilterByAccount    bool             `yaml:"filterByAccount"`
-	Email              EmailConfig      `yaml:"email"`
-	TargetFrom         string           `yaml:"targetFrom"`
-	TargetSubject      string           `yaml:"targetSubject"`
-	ExpiredLinkMessage string           `yaml:"expiredLinkMessage"`
+	NetflixAuth     []NetflixAccount `yaml:"netflixAuth"`
+	FilterByAccount bool             `yaml:"filterByAccount"`
+	Email           EmailConfig      `yaml:"email"`
+	TargetFrom      string           `yaml:"targetFrom"`
+	TargetSubject   string           `yaml:"targetSubject"`
 }
 
 type EmailConfig struct {
 	Imap        string        `yaml:"imap"`
 	Login       string        `yaml:"login"`
 	Password    string        `yaml:"password"`
-	RefreshTime time.Duration `yaml:"refreshTime"`
+	RefreshTime time.Duration `yaml:"refreshTime"` // ex: "30s", "1m"
 	MailBox     string        `yaml:"mailbox"`
 }
 
@@ -30,28 +28,21 @@ type NetflixAccount struct {
 	Password string `yaml:"password"`
 }
 
-func init() {
-	logrus.SetFormatter(&logrus.TextFormatter{
-		FullTimestamp: true,
-	})
-	logrus.SetOutput(os.Stdout)
-	logrus.SetLevel(logrus.InfoLevel)
-}
-
 func main() {
 	configFile, err := os.ReadFile("config.yaml")
 	if err != nil {
-		logrus.Fatalf("Error reading configuration file: %v", err)
+		log.Fatalf("Error reading configuration file: %v", err)
 	}
 
 	var config Config
 	if err := yaml.Unmarshal(configFile, &config); err != nil {
-		logrus.Fatalf("Error parsing configuration file: %v", err)
+		log.Fatalf("Error parsing configuration file: %v", err)
 	}
 
-	logrus.Infof("Starting Netflix email verification process")
+	log.Infof("Starting Netflix email verification process, refresh every %s", config.Email.RefreshTime)
+
 	for {
 		fetchLastUnseenEmail(config)
-		time.Sleep(config.Email.RefreshTime * time.Second)
+		time.Sleep(config.Email.RefreshTime)
 	}
 }

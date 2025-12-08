@@ -12,9 +12,8 @@ This application monitors an IMAP mailbox for emails from Netflix links. It is d
      imap: "imap.example.com:993"
      login: "your-email@example.com"
      password: "your-email-password"
-     refreshTime: 20
+     refreshTime: 20s
      mailbox: "INBOX"
-   expiredLinkMessage: "Ce lien n'est plus valide"
    targetFrom: "info@account.netflix.com"
    targetSubject: "Important : comment mettre à jour votre foyer Netflix"
 

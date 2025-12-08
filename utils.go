@@ -6,7 +6,7 @@ import (
 )
 
 func extractLinks(text string) []string {
-	re := regexp.MustCompile(`https?://\S+`)
+	re := regexp.MustCompile(`https?://[^\s"'<>)\]]+`)
 	return re.FindAllString(text, -1)
 }
 
