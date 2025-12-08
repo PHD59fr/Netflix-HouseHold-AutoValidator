@@ -2,7 +2,7 @@ email:
   imap: "imap.server:port"
   login: "myemail@server.com"
   password: "mypassword"
-  refreshTime: 20 #Time in seconds between each check
+  refreshTime: 20s #go duration format
   mailbox: "INBOX"
 expiredLinkMessage: "Ce lien n'est plus valide"
 targetFrom: "info@account.netflix.com"

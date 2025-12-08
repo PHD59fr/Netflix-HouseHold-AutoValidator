@@ -21,7 +21,7 @@ type EmailConfig struct {
 	Imap        string        `yaml:"imap"`
 	Login       string        `yaml:"login"`
 	Password    string        `yaml:"password"`
-	RefreshTime time.Duration `yaml:"refreshTime"`
+	RefreshTime time.Duration `yaml:"refreshTime"` // ex: "30s", "1m"
 	MailBox     string        `yaml:"mailbox"`
 }
 
@@ -49,9 +49,10 @@ func main() {
 		logrus.Fatalf("Error parsing configuration file: %v", err)
 	}
 
-	logrus.Infof("Starting Netflix email verification process")
+	logrus.Infof("Starting Netflix email verification process, refresh every %s", config.Email.RefreshTime)
+
 	for {
 		fetchLastUnseenEmail(config)
-		time.Sleep(config.Email.RefreshTime * time.Second)
+		time.Sleep(config.Email.RefreshTime)
 	}
 }
