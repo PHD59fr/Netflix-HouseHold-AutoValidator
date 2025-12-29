@@ -3,6 +3,7 @@ package main
 import (
 	"io"
 	"regexp"
+	"time"
 
 	"github.com/emersion/go-imap"
 	"github.com/emersion/go-imap/client"
@@ -34,11 +35,11 @@ func fetchLastUnseenEmail(config Config) {
 	}
 
 	criteria := imap.NewSearchCriteria()
-	criteria.WithoutFlags = []string{imap.SeenFlag}
+	criteria.Since = time.Now().Add(-15 * time.Minute)
 
 	uids, err := c.Search(criteria)
 	if err != nil {
-		log.Errorf("Error searching for unseen emails: %v", err)
+		log.Errorf("Error searching for recent emails: %v", err)
 		return
 	}
 
@@ -79,6 +80,12 @@ func processEmail(c *client.Client, uid uint32, config Config) error {
 		return nil
 	}
 
+	// Skip messages older than 15 minutes based on the server's internal date
+	if !msg.InternalDate.IsZero() && time.Since(msg.InternalDate) > 15*time.Minute {
+		locallog.Infof("Message UID %d is older than 15 minutes (date: %v), skipping", uid, msg.InternalDate)
+		return nil
+	}
+
 	r := msg.GetBody(section)
 	if r == nil {
 		locallog.Errorf("Message body could not be retrieved for UID %d", uid)
@@ -94,11 +101,7 @@ func processEmail(c *client.Client, uid uint32, config Config) error {
 	handled := handleEmail(mr, config, traceID)
 
 	if handled {
-		item := imap.FormatFlagsOp(imap.AddFlags, true)
-		flags := []interface{}{imap.SeenFlag}
-		if err := c.Store(seqSet, item, flags, nil); err != nil {
-			locallog.Errorf("Error marking message UID %d as seen: %v", uid, err)
-		}
+		locallog.Infof("Message UID %d handled", uid)
 	}
 
 	return nil
