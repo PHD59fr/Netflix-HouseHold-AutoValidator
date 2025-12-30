@@ -102,7 +102,11 @@ func processEmail(c *client.Client, uid uint32, config Config) error {
 	handled := handleEmail(mr, config, traceID)
 
 	if handled {
-		locallog.Infof("Message UID %d handled", uid)
+		item := imap.FormatFlagsOp(imap.AddFlags, true)
+		flags := []interface{}{imap.SeenFlag}
+		if err := c.Store(seqSet, item, flags, nil); err != nil {
+			locallog.Errorf("Error marking message UID %d as seen: %v", uid, err)
+		}
 	}
 
 	return nil
