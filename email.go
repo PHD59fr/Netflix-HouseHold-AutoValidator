@@ -35,6 +35,7 @@ func fetchLastUnseenEmail(config Config) {
 	}
 
 	criteria := imap.NewSearchCriteria()
+	criteria.WithoutFlags = []string{imap.SeenFlag}
 	criteria.Since = time.Now().Add(-15 * time.Minute)
 
 	uids, err := c.Search(criteria)
