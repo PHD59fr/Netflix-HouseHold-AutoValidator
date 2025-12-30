@@ -3,6 +3,8 @@ package main
 import (
 	"io"
 	"regexp"
+	"sync/atomic"
+	"time"
 
 	"github.com/emersion/go-imap"
 	"github.com/emersion/go-imap/client"
@@ -10,12 +12,37 @@ import (
 	"github.com/google/uuid"
 )
 
+var failureSleepDuration = 30 * time.Minute
+var imapFailureCount atomic.Int32
+
 func fetchLastUnseenEmail(config Config) {
 	c, err := client.DialTLS(config.Email.Imap, nil)
 	if err != nil {
+		failures := imapFailureCount.Add(1)
 		log.Errorf("IMAP connection error: %v", err)
+
+		if failures >= 5 {
+			base := 5 * time.Minute
+			maxSteps := int32(10)
+
+			n := failures - 5
+			if n > maxSteps {
+				n = maxSteps
+			}
+
+			backoff := base * time.Duration(1<<n)
+			if backoff > failureSleepDuration {
+				backoff = failureSleepDuration
+			}
+
+			log.Warnf("IMAP failed %d times, waiting %s before next attempt", failures, backoff)
+			time.Sleep(backoff)
+		}
 		return
 	}
+
+	imapFailureCount.Store(0)
+
 	defer func() {
 		if err := c.Logout(); err != nil {
 			log.Errorf("Logout error: %v", err)
@@ -35,10 +62,11 @@ func fetchLastUnseenEmail(config Config) {
 
 	criteria := imap.NewSearchCriteria()
 	criteria.WithoutFlags = []string{imap.SeenFlag}
+	criteria.Since = time.Now().Add(-15 * time.Minute)
 
 	uids, err := c.Search(criteria)
 	if err != nil {
-		log.Errorf("Error searching for unseen emails: %v", err)
+		log.Errorf("Error searching for recent emails: %v", err)
 		return
 	}
 
@@ -58,24 +86,40 @@ func processEmail(c *client.Client, uid uint32, config Config) error {
 	seqSet := new(imap.SeqSet)
 	seqSet.AddNum(uid)
 
-	// Generate trace id for this email processing flow
 	traceID := uuid.New().String()
 	locallog := log.WithField("trace_id", traceID)
 
 	section := &imap.BodySectionName{}
 	items := []imap.FetchItem{section.FetchItem()}
+
+	prevTimeout := c.Timeout
+	c.Timeout = 30 * time.Second
+	defer func() { c.Timeout = prevTimeout }()
+
 	messages := make(chan *imap.Message, 1)
+	done := make(chan error, 1)
 
 	go func() {
-		if err := c.Fetch(seqSet, items, messages); err != nil {
-			locallog.Errorf("Error fetching message UID %d: %v", uid, err)
-			close(messages)
-		}
+		done <- c.Fetch(seqSet, items, messages)
 	}()
 
-	msg, ok := <-messages
-	if !ok || msg == nil {
+	var msg *imap.Message
+	for m := range messages {
+		msg = m
+	}
+
+	if err := <-done; err != nil {
+		locallog.Errorf("Error fetching message UID %d: %v", uid, err)
+		return err
+	}
+
+	if msg == nil {
 		locallog.Infof("No message retrieved for UID %d", uid)
+		return nil
+	}
+
+	if !msg.InternalDate.IsZero() && time.Since(msg.InternalDate) > 15*time.Minute {
+		locallog.Infof("Message UID %d is older than 15 minutes (date: %v), skipping", uid, msg.InternalDate)
 		return nil
 	}
 
@@ -92,7 +136,6 @@ func processEmail(c *client.Client, uid uint32, config Config) error {
 	}
 
 	handled := handleEmail(mr, config, traceID)
-
 	if handled {
 		item := imap.FormatFlagsOp(imap.AddFlags, true)
 		flags := []interface{}{imap.SeenFlag}
