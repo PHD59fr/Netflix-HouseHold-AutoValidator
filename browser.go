@@ -73,6 +73,8 @@ func attemptOpenLink(
 	attempt int,
 	traceID string,
 ) attemptResult {
+	activeRodSessions.Add(1)
+	defer activeRodSessions.Add(-1)
 
 	locallog := log.WithField("trace_id", traceID)
 
