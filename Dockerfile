@@ -5,7 +5,7 @@ WORKDIR /app
 COPY . .
 
 RUN apk add --no-cache upx chromium libstdc++ libx11 libxcomposite libxrandr libxi libxdamage mesa-gl glib ca-certificates && \
-    go build -o netflix-household-autovalidator && \
+    go build -o netflix-household-autovalidator ./cmd/main.go && \
     upx --best --lzma netflix-household-autovalidator
 
 
