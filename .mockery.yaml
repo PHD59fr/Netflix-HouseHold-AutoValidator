@@ -1,0 +1,12 @@
+with-expecter: true
+dir: "{{.InterfaceDir}}/mocks"
+filename: "mock_{{.InterfaceName}}.go"
+mockname: "Mock{{.InterfaceName}}"
+outpkg: mocks
+packages:
+  netflix-household-validator/internal/imap:
+    interfaces:
+      Client:
+  netflix-household-validator/internal/netflix:
+    interfaces:
+      Browser:

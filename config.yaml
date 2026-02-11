@@ -4,7 +4,6 @@ email:
   password: "mypassword"
   refreshTime: 20s #go duration format
   mailbox: "INBOX"
-expiredLinkMessage: "Ce lien n'est plus valide"
 targetFrom: "info@account.netflix.com"
 targetSubject: "Important : comment mettre à jour votre foyer Netflix"
 filterByAccount: false #If true, the script will only forward emails from the account specified in the next field
