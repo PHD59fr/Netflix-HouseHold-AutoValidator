@@ -11,8 +11,19 @@ import (
 	"netflix-household-validator/internal/netflix"
 )
 
-// Netflix typically sends verification emails immediately, so a 15-minute window is reasonable to account for delays without processing stale emails.
+// EmailValidityWindow Netflix typically sends verification emails immediately,so a 15-minute window is reasonable to
+// account for delays without processing stale emails.
 const EmailValidityWindow = 15 * time.Minute
+
+// ProcessingStats tracks email processing statistics for a cycle
+type ProcessingStats struct {
+	Total          int
+	Processed      int
+	Ignored        int
+	Failed         int
+	TooOld         int
+	NoMatchingLink int
+}
 
 type Processor struct {
 	imapClient     imapclient.Client
@@ -29,18 +40,19 @@ func NewProcessor(imapClient imapclient.Client, netflixService *netflix.Service)
 
 // ProcessEmail orchestrates the complete email processing workflow:
 // fetch → parse → validate age → handle → mark as seen
-func (p *Processor) ProcessEmail(uid uint32) error {
+// Returns a boolean indicating if the email was successfully handled and should update stats
+func (p *Processor) ProcessEmail(uid uint32) (handled bool, ignored bool, err error) {
 	// Fetch message from IMAP
 	msg, err := p.imapClient.FetchMessage(uid)
 	if err != nil {
-		return err
+		return false, false, err
 	}
 
 	// Parse email to normalized structure
 	email, err := mailparse.Parse(msg)
 	if err != nil {
 		logging.Log.WithField("trace_id", "unknown").Errorf("Error parsing email UID %d: %v", uid, err)
-		return err
+		return false, false, err
 	}
 
 	locallog := logging.Log.WithField("trace_id", email.TraceID)
@@ -48,20 +60,21 @@ func (p *Processor) ProcessEmail(uid uint32) error {
 	// Validate email age (15 minutes window)
 	if !p.isEmailValid(email) {
 		locallog.Infof("Message UID %d is older than %v (date: %v), skipping", uid, EmailValidityWindow, email.InternalDate)
-		return nil
+		return false, false, nil
 	}
 
 	// Handle email with Netflix service (filters, browser automation)
-	handled := p.netflixService.HandleEmail(email)
+	handled = p.netflixService.HandleEmail(email)
 
 	// Mark as seen only if successfully handled
 	if handled {
 		if err := p.imapClient.MarkSeen(uid); err != nil {
 			locallog.Errorf("Error marking message UID %d as seen: %v", uid, err)
 		}
+		return true, false, nil
 	}
 
-	return nil
+	return false, true, nil
 }
 
 // isEmailValid checks if email is within the validity window (15 minutes)
