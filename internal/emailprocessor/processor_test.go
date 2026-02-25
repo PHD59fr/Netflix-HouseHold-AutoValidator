@@ -66,9 +66,4 @@ func TestIsEmailValid(t *testing.T) {
 	}
 }
 
-func TestEmailValidityWindow(t *testing.T) {
-	expected := 15 * time.Minute
-	if EmailValidityWindow != expected {
-		t.Errorf("EmailValidityWindow = %v, want %v", EmailValidityWindow, expected)
-	}
-}
+

@@ -126,3 +126,17 @@ func (c *StandardClient) Close() error {
 	}
 	return c.client.Logout()
 }
+
+// IsHealthy checks if the IMAP connection is still alive by sending a NOOP command
+func (c *StandardClient) IsHealthy() bool {
+	if c.client == nil {
+		return false
+	}
+	
+	// NOOP is a lightweight command that does nothing but confirms the connection is alive
+	if err := c.client.Noop(); err != nil {
+		return false
+	}
+	
+	return true
+}

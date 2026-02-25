@@ -81,11 +81,21 @@ func (rb *RodBrowser) attemptOpenLink(
 	u := launcher.New().
 		Headless(true).
 		NoSandbox(true).
-		UserDataDir(tmpDir).
-		MustLaunch()
+		UserDataDir(tmpDir)
 
-	browser := rod.New().ControlURL(u).MustConnect()
+	launchURL, err := u.Launch()
+	if err != nil {
+		locallog.WithError(err).Error("failed to launch browser")
+		return models.ResultFailed, err
+	}
+	defer u.Cleanup()
+
+	browser := rod.New()
 	defer func() { _ = browser.Close() }()
+	if err := browser.ControlURL(launchURL).Connect(); err != nil {
+		locallog.WithError(err).Error("failed to connect to browser")
+		return models.ResultFailed, err
+	}
 
 	page := browser.MustPage(link)
 	defer func() { _ = page.Close() }()
@@ -171,9 +181,4 @@ func StartCleanup() {
 			}
 		}
 	}()
-}
-
-// GetActiveSessionCount returns the current number of active Rod sessions (for testing)
-func GetActiveSessionCount() int32 {
-	return activeRodSessions.Load()
 }

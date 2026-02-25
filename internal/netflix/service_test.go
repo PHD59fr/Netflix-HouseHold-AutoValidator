@@ -11,7 +11,7 @@ type MockBrowser struct {
 	Err    error
 }
 
-func (m *MockBrowser) OpenUpdatePrimaryLocation(link, email, password string, traceID string) (models.BrowserResult, error) {
+func (m *MockBrowser) OpenUpdatePrimaryLocation(_, _, _ string, _ string) (models.BrowserResult, error) {
 	return m.Result, m.Err
 }
 

@@ -14,4 +14,5 @@ type Client interface {
 	FetchMessage(uid uint32) (*imap.Message, error)
 	MarkSeen(uid uint32) error
 	Close() error
+	IsHealthy() bool
 }
