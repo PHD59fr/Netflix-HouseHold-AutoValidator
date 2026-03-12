@@ -1,6 +1,7 @@
 package imap
 
 import (
+	"context"
 	"fmt"
 	"time"
 
@@ -127,16 +128,42 @@ func (c *StandardClient) Close() error {
 	return c.client.Logout()
 }
 
-// IsHealthy checks if the IMAP connection is still alive by sending a NOOP command
-func (c *StandardClient) IsHealthy() bool {
+// WaitForNewMail enters IMAP IDLE and blocks until the server signals a mailbox
+// change (new message) or ctx is cancelled. The library handles the mandatory
+// IDLE refresh every 25 minutes automatically, and falls back to polling if the
+// server does not advertise the IDLE capability.
+func (c *StandardClient) WaitForNewMail(ctx context.Context) error {
 	if c.client == nil {
-		return false
+		return fmt.Errorf("not connected")
 	}
-	
-	// NOOP is a lightweight command that does nothing but confirms the connection is alive
-	if err := c.client.Noop(); err != nil {
-		return false
+
+	updates := make(chan client.Update, 8)
+	c.client.Updates = updates
+	defer func() { c.client.Updates = nil }()
+
+	stop := make(chan struct{})
+	idleDone := make(chan error, 1)
+	go func() {
+		idleDone <- c.client.Idle(stop, nil)
+	}()
+
+	for {
+		select {
+		case <-ctx.Done():
+			close(stop)
+			<-idleDone
+			return ctx.Err()
+		case err := <-idleDone:
+			if err != nil {
+				return fmt.Errorf("IDLE terminated: %w", err)
+			}
+			return fmt.Errorf("IDLE terminated unexpectedly")
+		case update := <-updates:
+			if _, ok := update.(*client.MailboxUpdate); ok {
+				close(stop)
+				<-idleDone
+				return nil
+			}
+		}
 	}
-	
-	return true
 }

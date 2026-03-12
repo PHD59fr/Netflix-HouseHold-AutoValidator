@@ -1,7 +1,5 @@
 package models
 
-import "time"
-
 // Config represents the application configuration
 type Config struct {
 	NetflixAuth     []NetflixAccount `yaml:"netflixAuth"`
@@ -13,11 +11,10 @@ type Config struct {
 
 // EmailConfig represents IMAP email configuration
 type EmailConfig struct {
-	Imap        string        `yaml:"imap"`
-	Login       string        `yaml:"login"`
-	Password    string        `yaml:"password"`
-	RefreshTime time.Duration `yaml:"refreshTime"`
-	MailBox     string        `yaml:"mailbox"`
+	Imap     string `yaml:"imap"`
+	Login    string `yaml:"login"`
+	Password string `yaml:"password"`
+	MailBox  string `yaml:"mailbox"`
 }
 
 // NetflixAccount represents Netflix account credentials

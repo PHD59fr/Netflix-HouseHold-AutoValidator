@@ -1,6 +1,7 @@
 package main
 
 import (
+	"context"
 	"sync/atomic"
 	"time"
 
@@ -22,7 +23,7 @@ func main() {
 		logging.Log.Fatalf("Error reading configuration file: %v", err)
 	}
 
-	logging.Log.Infof("Starting Netflix email verification process, refresh every %s", cfg.Email.RefreshTime)
+	logging.Log.Info("Starting Netflix email verification process (IMAP IDLE mode)")
 
 	// Start background cleanup for Rod temp directories
 	netflix.StartCleanup()
@@ -33,30 +34,31 @@ func main() {
 
 	// Create persistent IMAP client
 	client := imapclient.NewStandardClient()
-	var connected bool
+	connected := false
 
 	for {
-		// Check if connection is healthy, reconnect if necessary
-		if !connected || !client.IsHealthy() {
-			if connected {
-				logging.Log.Warn("IMAP connection lost, reconnecting...")
-				_ = client.Close()
-			}
-
+		if !connected {
 			if err := connectAndAuthenticate(client, cfg); err != nil {
 				handleIMAPFailure(err)
-				time.Sleep(cfg.Email.RefreshTime)
 				continue
 			}
-
 			connected = true
 			imapFailureCount.Store(0)
 		}
 
-		// Process emails with the persistent connection
+		// Process any emails that arrived before or during connection setup
 		fetchAndProcessEmails(client, netflixService, cfg)
 
-		time.Sleep(cfg.Email.RefreshTime)
+		// Block until the server notifies us of new mail via IMAP IDLE
+		if err := client.WaitForNewMail(context.Background()); err != nil {
+			logging.Log.Errorf("IDLE error: %v", err)
+			connected = false
+			_ = client.Close()
+			handleIMAPFailure(err)
+			continue
+		}
+
+		// New mail signalled — loop back to fetch and process
 	}
 }
 

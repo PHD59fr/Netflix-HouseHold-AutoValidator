@@ -3,7 +3,6 @@ package config
 import (
 	"os"
 	"testing"
-	"time"
 )
 
 func TestLoad(t *testing.T) {
@@ -11,7 +10,6 @@ func TestLoad(t *testing.T) {
   imap: "imap.test.com:993"
   login: "test@example.com"
   password: "testpass"
-  refreshTime: 30s
   mailbox: "INBOX"
 targetFrom: "info@test.com"
 targetSubject: "Test Subject"
@@ -43,10 +41,6 @@ netflixAuth:
 
 	if cfg.Email.Imap != "imap.test.com:993" {
 		t.Errorf("Expected imap 'imap.test.com:993', got '%s'", cfg.Email.Imap)
-	}
-
-	if cfg.Email.RefreshTime != 30*time.Second {
-		t.Errorf("Expected refreshTime 30s, got %v", cfg.Email.RefreshTime)
 	}
 
 	if cfg.TargetFrom != "info@test.com" {

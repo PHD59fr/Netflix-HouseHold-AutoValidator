@@ -47,7 +47,6 @@ internal/
      imap: "imap.example.com:993"
      login: "your-email@example.com"
      password: "your-email-password"
-     refreshTime: 20s
      mailbox: "INBOX"
    targetFrom: "info@account.netflix.com"
    targetSubject: "Important : comment mettre à jour votre foyer Netflix"
@@ -63,7 +62,6 @@ internal/
 
 
 **Configuration Notes:**
-- `refreshTime`: How often to check for new emails (e.g., `20s`, `1m`, `5m`)
 - `filterByAccount`: When `true`, matches email recipients against `netflixAuth` accounts
 - `netflixAuth`: Optional credentials for automatic login if Netflix requires it
 
@@ -140,7 +138,7 @@ go build -o validator ./cmd/main.go
 
 ## 🔧 How It Works
 
-1. **Monitoring**: Polls IMAP mailbox every `refreshTime` for unseen emails from last 15 minutes
+1. **Monitoring**: Uses IMAP IDLE to subscribe for unseen emails from last 15 minutes
 2. **Filtering**: Checks email sender (`targetFrom`) and subject (`targetSubject`)
 3. **Parsing**: Extracts `update-primary-location` links from email body
 4. **Automation**: Opens link in headless browser (Rod + Chromium)
