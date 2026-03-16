@@ -151,8 +151,10 @@ func (c *StandardClient) WaitForNewMail(ctx context.Context) error {
 		case <-ctx.Done():
 			close(stop)
 			<-idleDone
+			c.client.Updates = nil
 			return ctx.Err()
 		case err := <-idleDone:
+			c.client.Updates = nil
 			if err != nil {
 				return fmt.Errorf("IDLE terminated: %w", err)
 			}
@@ -161,6 +163,7 @@ func (c *StandardClient) WaitForNewMail(ctx context.Context) error {
 			if _, ok := update.(*client.MailboxUpdate); ok {
 				close(stop)
 				<-idleDone
+				c.client.Updates = nil
 				return nil
 			}
 		}
