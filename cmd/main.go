@@ -49,6 +49,14 @@ func main() {
 		// Process any emails that arrived before or during connection setup
 		fetchAndProcessEmails(client, netflixService, cfg)
 
+		// Ensure mailbox is selected before entering IDLE (fetchAndProcessEmails may have failed early)
+		if err := client.SelectMailbox(cfg.Email.MailBox); err != nil {
+			logging.Log.Errorf("Failed to select mailbox: %v", err)
+			connected = false
+			_ = client.Close()
+			continue
+		}
+
 		// Block until the server notifies us of new mail via IMAP IDLE
 		if err := client.WaitForNewMail(context.Background()); err != nil {
 			logging.Log.Errorf("IDLE error: %v", err)
