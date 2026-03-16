@@ -125,46 +125,60 @@ func (c *StandardClient) Close() error {
 	if c.client == nil {
 		return nil
 	}
-	return c.client.Logout()
+	err := c.client.Logout()
+	c.client = nil
+	return err
 }
 
 // WaitForNewMail enters IMAP IDLE and blocks until the server signals a mailbox
-// change (new message) or ctx is cancelled. The library handles the mandatory
-// IDLE refresh every 25 minutes automatically, and falls back to polling if the
-// server does not advertise the IDLE capability.
+// change or ctx is cancelled. IDLE is transparently re-issued every 25 minutes
+// to prevent the server from closing the session (RFC 2177 recommends < 29 min).
 func (c *StandardClient) WaitForNewMail(ctx context.Context) error {
 	if c.client == nil {
 		return fmt.Errorf("not connected")
 	}
 
+	const idleRefreshInterval = 25 * time.Minute
+
 	updates := make(chan client.Update, 8)
 	c.client.Updates = updates
-
-	stop := make(chan struct{})
-	idleDone := make(chan error, 1)
-	go func() {
-		idleDone <- c.client.Idle(stop, nil)
-	}()
+	defer func() { c.client.Updates = nil }()
 
 	for {
-		select {
-		case <-ctx.Done():
-			close(stop)
-			<-idleDone
-			c.client.Updates = nil
-			return ctx.Err()
-		case err := <-idleDone:
-			c.client.Updates = nil
-			if err != nil {
-				return fmt.Errorf("IDLE terminated: %w", err)
-			}
-			return fmt.Errorf("IDLE terminated unexpectedly")
-		case update := <-updates:
-			if _, ok := update.(*client.MailboxUpdate); ok {
+		stop := make(chan struct{})
+		idleDone := make(chan error, 1)
+		go func() {
+			idleDone <- c.client.Idle(stop, nil)
+		}()
+
+		refresh := time.NewTimer(idleRefreshInterval)
+		reissue := false
+
+		for !reissue {
+			select {
+			case <-ctx.Done():
 				close(stop)
 				<-idleDone
-				c.client.Updates = nil
-				return nil
+				refresh.Stop()
+				return ctx.Err()
+			case err := <-idleDone:
+				refresh.Stop()
+				if err != nil {
+					return fmt.Errorf("IDLE terminated: %w", err)
+				}
+				return fmt.Errorf("IDLE terminated unexpectedly")
+			case <-refresh.C:
+				// Re-issue IDLE before the server closes the session
+				close(stop)
+				<-idleDone
+				reissue = true
+			case update := <-updates:
+				if _, ok := update.(*client.MailboxUpdate); ok {
+					close(stop)
+					<-idleDone
+					refresh.Stop()
+					return nil
+				}
 			}
 		}
 	}

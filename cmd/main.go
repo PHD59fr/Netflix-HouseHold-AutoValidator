@@ -72,7 +72,6 @@ func main() {
 				logging.Log.Info("Shutting down gracefully")
 				return
 			}
-			logging.Log.Errorf("IDLE error: %v", err)
 			handleIMAPFailure(err)
 			continue
 		}
@@ -90,7 +89,6 @@ func connectAndAuthenticate(client *imapclient.StandardClient, cfg *models.Confi
 
 	// Login
 	if err := client.Login(cfg.Email.Login, cfg.Email.Password); err != nil {
-		logging.Log.Errorf("Login error: %v", err)
 		_ = client.Close()
 		return err
 	}
@@ -163,7 +161,10 @@ func handleIMAPFailure(err error) {
 	failures := imapFailureCount.Add(1)
 	logging.Log.Errorf("IMAP connection error: %v", err)
 
-	if failures >= 5 {
+	var backoff time.Duration
+	if failures < 5 {
+		backoff = 10 * time.Second
+	} else {
 		base := 5 * time.Minute
 		maxSteps := int32(10)
 
@@ -172,12 +173,12 @@ func handleIMAPFailure(err error) {
 			n = maxSteps
 		}
 
-		backoff := base * time.Duration(1<<n)
+		backoff = base * time.Duration(1<<n)
 		if backoff > failureSleepDuration {
 			backoff = failureSleepDuration
 		}
-
-		logging.Log.Warnf("IMAP failed %d times, waiting %s before next attempt", failures, backoff)
-		time.Sleep(backoff)
 	}
+
+	logging.Log.Warnf("IMAP failed %d times, waiting %s before next attempt", failures, backoff)
+	time.Sleep(backoff)
 }
