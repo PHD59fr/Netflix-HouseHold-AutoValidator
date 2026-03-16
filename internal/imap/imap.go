@@ -1,6 +1,7 @@
 package imap
 
 import (
+	"context"
 	"time"
 
 	"github.com/emersion/go-imap"
@@ -14,5 +15,7 @@ type Client interface {
 	FetchMessage(uid uint32) (*imap.Message, error)
 	MarkSeen(uid uint32) error
 	Close() error
-	IsHealthy() bool
+	// WaitForNewMail blocks until the server signals new mail in the selected
+	// mailbox (via IMAP IDLE) or ctx is cancelled.
+	WaitForNewMail(ctx context.Context) error
 }
