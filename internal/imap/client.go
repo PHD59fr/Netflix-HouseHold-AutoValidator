@@ -139,7 +139,6 @@ func (c *StandardClient) WaitForNewMail(ctx context.Context) error {
 
 	updates := make(chan client.Update, 8)
 	c.client.Updates = updates
-	defer func() { c.client.Updates = nil }()
 
 	stop := make(chan struct{})
 	idleDone := make(chan error, 1)
