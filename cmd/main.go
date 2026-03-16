@@ -2,7 +2,11 @@ package main
 
 import (
 	"context"
+	"errors"
+	"os"
+	"os/signal"
 	"sync/atomic"
+	"syscall"
 	"time"
 
 	"netflix-household-validator/internal/config"
@@ -32,6 +36,9 @@ func main() {
 	browser := netflix.NewRodBrowser()
 	netflixService := netflix.NewService(browser, cfg)
 
+	ctx, cancel := signal.NotifyContext(context.Background(), os.Interrupt, syscall.SIGTERM)
+	defer cancel()
+
 	// Create persistent IMAP client
 	client := imapclient.NewStandardClient()
 	connected := false
@@ -58,10 +65,14 @@ func main() {
 		}
 
 		// Block until the server notifies us of new mail via IMAP IDLE
-		if err := client.WaitForNewMail(context.Background()); err != nil {
-			logging.Log.Errorf("IDLE error: %v", err)
+		if err := client.WaitForNewMail(ctx); err != nil {
 			connected = false
 			_ = client.Close()
+			if errors.Is(err, context.Canceled) {
+				logging.Log.Info("Shutting down gracefully")
+				return
+			}
+			logging.Log.Errorf("IDLE error: %v", err)
 			handleIMAPFailure(err)
 			continue
 		}
