@@ -156,10 +156,16 @@ func fetchAndProcessEmails(client *imapclient.StandardClient, netflixService *ne
 	)
 }
 
-// handleIMAPFailure increments the failure count and implements an exponential backoff strategy
+// handleIMAPFailure increments the failure count and implements an exponential backoff strategy.
+// First failure reconnects immediately; subsequent failures use exponential backoff.
 func handleIMAPFailure(err error) {
 	failures := imapFailureCount.Add(1)
 	logging.Log.Errorf("IMAP connection error: %v", err)
+
+	if failures == 1 {
+		logging.Log.Warnf("IMAP failed, reconnecting immediately...")
+		return
+	}
 
 	var backoff time.Duration
 	if failures < 5 {
