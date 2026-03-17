@@ -2,7 +2,9 @@ package imap
 
 import (
 	"context"
+	"crypto/tls"
 	"fmt"
+	"net"
 	"time"
 
 	"github.com/emersion/go-imap"
@@ -21,10 +23,21 @@ func NewStandardClient() *StandardClient {
 	}
 }
 
-// Connect establishes a secure connection to the IMAP server using TLS. It returns an error if the connection fails.
+// Connect establishes a secure connection to the IMAP server using TLS with TCP keepalive
+// to prevent NAT/firewall from silently dropping idle connections.
 func (c *StandardClient) Connect(server string) error {
-	cl, err := client.DialTLS(server, nil)
+	host, _, _ := net.SplitHostPort(server)
+	dialer := &net.Dialer{
+		Timeout:   30 * time.Second,
+		KeepAlive: 30 * time.Second,
+	}
+	conn, err := tls.DialWithDialer(dialer, "tcp", server, &tls.Config{ServerName: host})
 	if err != nil {
+		return fmt.Errorf("IMAP connection error: %w", err)
+	}
+	cl, err := client.New(conn)
+	if err != nil {
+		_ = conn.Close()
 		return fmt.Errorf("IMAP connection error: %w", err)
 	}
 	c.client = cl
