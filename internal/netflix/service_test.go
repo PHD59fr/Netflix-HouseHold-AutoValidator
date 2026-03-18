@@ -11,7 +11,7 @@ type MockBrowser struct {
 	Err    error
 }
 
-func (m *MockBrowser) OpenUpdatePrimaryLocation(_, _, _ string, _ string) (models.BrowserResult, error) {
+func (m *MockBrowser) OpenUpdatePrimaryLocation(_, _ string) (models.BrowserResult, error) {
 	return m.Result, m.Err
 }
 
@@ -109,9 +109,8 @@ func TestHandleEmail_NoUpdateLink(t *testing.T) {
 
 func TestHandleEmail_Success(t *testing.T) {
 	cfg := &models.Config{
-		TargetFrom:      "info@account.netflix.com",
-		TargetSubject:   "Test Subject",
-		FilterByAccount: false,
+		TargetFrom:    "info@account.netflix.com",
+		TargetSubject: "Test Subject",
 	}
 
 	mockBrowser := &MockBrowser{Result: models.ResultSuccess}
@@ -132,66 +131,10 @@ func TestHandleEmail_Success(t *testing.T) {
 	}
 }
 
-func TestHandleEmail_FilterByAccount_Match(t *testing.T) {
-	cfg := &models.Config{
-		TargetFrom:      "info@account.netflix.com",
-		TargetSubject:   "Test Subject",
-		FilterByAccount: true,
-		NetflixAuth: []models.NetflixAccount{
-			{Email: "user1@example.com", Password: "pass1"},
-			{Email: "user2@example.com", Password: "pass2"},
-		},
-	}
-
-	mockBrowser := &MockBrowser{Result: models.ResultSuccess}
-	svc := NewService(mockBrowser, cfg)
-
-	email := &models.Email{
-		From:      "info@account.netflix.com",
-		Subject:   "Test Subject",
-		BodyText:  "https://netflix.com/update-primary-location?token=abc",
-		ToPrimary: "user2@example.com",
-		TraceID:   "test-trace",
-	}
-
-	handled := svc.HandleEmail(email)
-	if !handled {
-		t.Error("Expected email to be handled for matching account")
-	}
-}
-
-func TestHandleEmail_FilterByAccount_NoMatch(t *testing.T) {
-	cfg := &models.Config{
-		TargetFrom:      "info@account.netflix.com",
-		TargetSubject:   "Test Subject",
-		FilterByAccount: true,
-		NetflixAuth: []models.NetflixAccount{
-			{Email: "user1@example.com", Password: "pass1"},
-		},
-	}
-
-	mockBrowser := &MockBrowser{Result: models.ResultSuccess}
-	svc := NewService(mockBrowser, cfg)
-
-	email := &models.Email{
-		From:      "info@account.netflix.com",
-		Subject:   "Test Subject",
-		BodyText:  "https://netflix.com/update-primary-location?token=abc",
-		ToPrimary: "unknown@example.com",
-		TraceID:   "test-trace",
-	}
-
-	handled := svc.HandleEmail(email)
-	if handled {
-		t.Error("Expected email to be rejected due to no matching account")
-	}
-}
-
 func TestHandleEmail_BrowserResultExpired(t *testing.T) {
 	cfg := &models.Config{
-		TargetFrom:      "info@account.netflix.com",
-		TargetSubject:   "Test Subject",
-		FilterByAccount: false,
+		TargetFrom:    "info@account.netflix.com",
+		TargetSubject: "Test Subject",
 	}
 
 	mockBrowser := &MockBrowser{Result: models.ResultExpired}
@@ -213,9 +156,8 @@ func TestHandleEmail_BrowserResultExpired(t *testing.T) {
 
 func TestHandleEmail_BrowserResultAbort(t *testing.T) {
 	cfg := &models.Config{
-		TargetFrom:      "info@account.netflix.com",
-		TargetSubject:   "Test Subject",
-		FilterByAccount: false,
+		TargetFrom:    "info@account.netflix.com",
+		TargetSubject: "Test Subject",
 	}
 
 	mockBrowser := &MockBrowser{Result: models.ResultAbort}

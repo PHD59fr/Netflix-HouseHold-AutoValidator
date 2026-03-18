@@ -2,42 +2,19 @@
 
 Automated Netflix household location verification through email monitoring and browser automation.
 
-[![Go Version](https://img.shields.io/badge/Go-1.25+-00ADD8?style=flat&logo=go)](https://go.dev/)
+[![Go Version](https://img.shields.io/badge/Go-1.26+-00ADD8?style=flat&logo=go)](https://go.dev/)
 [![License](https://img.shields.io/badge/License-MIT-blue.svg)](LICENSE)
 [![Docker](https://img.shields.io/badge/Docker-Available-2496ED?style=flat&logo=docker)](https://hub.docker.com/r/phd59fr/netflix-household-autovalidator)
 
 ## 📝 Description
 
-This application monitors an IMAP mailbox for emails from Netflix links. It is designed to automate the process of verifying the primary location for Netflix accounts.
-
+This application monitors an IMAP mailbox for Netflix emails containing household verification links and automatically validates them. No manual action required.
 **Key Features:**
-- 📧 Automated IMAP email monitoring
-- 🌐 Headless browser automation (Rod/Chromium)
-- 🔐 Multi-account support with credentials
-- 🧹 Automatic temp directory cleanup
-- 📊 Structured JSON logging with trace IDs
-- 🐳 Docker-ready
-
-## 📂 Code Structure
-
-```
-cmd/
-└── main.go                   # Entry point
-
-internal/
-├── models/                   # Domain types (Config, Email, BrowserResult)
-├── config/                   # Configuration loading
-├── logging/                  # JSON logger setup
-├── imapfetch/               # IMAP client (interface + implementation)
-├── mailparse/               # Email parsing & link extraction
-├── emailprocessor/          # Email workflow orchestration
-└── netflix/                 # Netflix service & browser automation
-```
-
-**Design Patterns:**
-- Clean Architecture (domain models separated)
-- Dependency Injection (interfaces for testability)
-- Repository Pattern (IMAP client abstraction)
+- 📧 Monitors your mailbox for Netflix verification emails
+- ⚡ Automatically validates household location from email links
+- 🧠 Ignores expired or invalid links
+- 📊 Structured JSON logs with trace IDs
+- 🐳 Ready to run with Docker
 
 ## ⚙️ Configuration
 **Edit the `config.yaml` file at the root of the project with the following structure:**
@@ -50,20 +27,8 @@ internal/
      mailbox: "INBOX"
    targetFrom: "info@account.netflix.com"
    targetSubject: "Important : comment mettre à jour votre foyer Netflix"
-
-   filterByAccount: false # if true, the application will only process emails that match the email addresses in the netflixAuth section
-   netflixAuth:
-     - email: "your-netflix-email@example.com" #Optional
-       password: "your-netflix-password" #Optional
-     - email: "your-netflix-email2@example.com" #Optional
-       password: "your-netflix-password2" #Optional
-  ```
+```
 **Note:** Make sure to replace the values with your own information.
-
-
-**Configuration Notes:**
-- `filterByAccount`: When `true`, matches email recipients against `netflixAuth` accounts
-- `netflixAuth`: Optional credentials for automatic login if Netflix requires it
 
 ## 🚀 Usage
 
@@ -83,14 +48,34 @@ go build -o validator ./cmd/main.go
 go test ./...
 ```
 
+### Environment Variables
+
+| Variable       | Description      |
+|----------------|------------------|
+| EMAIL_IMAP     | IMAP server      |
+| EMAIL_LOGIN    | Email login      |
+| EMAIL_PASSWORD | Email password   |
+| EMAIL_MAILBOX  | Mailbox name     |
+| TARGET_FROM    | Expected sender  |
+| TARGET_SUBJECT | Expected subject |
+
 ### 🐳 Docker
 
 ```bash
 # Pull image
 docker pull phd59fr/netflix-household-autovalidator
 
-# Run with volume-mounted config
+# Run with volume-mounted yaml config
 docker run -v $(pwd)/config.yaml:/app/config.yaml phd59fr/netflix-household-autovalidator
+
+# Run with environment variables (overrides config.yaml)
+docker run \
+  -e EMAIL_IMAP=imap.example.com:993 \
+  -e EMAIL_LOGIN=your-email@example.com \
+  -e EMAIL_PASSWORD=your-password \
+  -e TARGET_FROM=info@account.netflix.com \
+  -e TARGET_SUBJECT="Important : comment mettre à jour votre foyer Netflix" \
+  phd59fr/netflix-household-autovalidator
 ```
 
 **Docker Hub:** [phd59fr/netflix-household-autovalidator](https://hub.docker.com/r/phd59fr/netflix-household-autovalidator)
@@ -110,40 +95,42 @@ go build -o validator ./cmd/main.go
 ```
 .
 ├── cmd/
-│   └── main.go                      # Application entry point
+│   └── main.go                  # Application entry point
 ├── internal/
-│   ├── models/                      # Domain types
-│   │   ├── config.go                # Config, EmailConfig, NetflixAccount
-│   │   ├── email.go                 # Email struct
-│   │   └── browser.go               # BrowserResult enum
-│   ├── config/
-│   │   └── config.go                # YAML config loader
-│   ├── logging/
-│   │   └── logger.go                # Logrus JSON logger
-│   ├── imapfetch/
-│   │   ├── imap.go                  # Client interface
-│   │   └── client.go                # StandardClient implementation
-│   ├── mailparse/
-│   │   └── parser.go                # Email parsing & link extraction
-│   ├── emailprocessor/
-│   │   └── processor.go             # Email workflow orchestration
-│   └── netflix/
-│       ├── browser.go               # Browser interface
-│       ├── browser_rod.go           # Rod browser implementation
-│       └── service.go               # Netflix logic (filters, handlers)
-├── config.yaml                      # Configuration file
-├── Dockerfile                       # Docker build
-└── go.mod                           # Go module definition
+│   ├── config/                  # Config loading
+│   ├── emailprocessor/          # Email processing workflow
+│   ├── imap/                    # IMAP client
+│   ├── logging/                 # Structured JSON logger
+│   ├── mailparse/               # Email parsing & link extraction
+│   ├── models/                  # Domain models (Config, Email, BrowserResult)
+│   └── netflix/                 # Netflix service & browser automation
+├── config.yaml                  # Optional YAML configuration
+├── Dockerfile                   # Container build
+├── .github/workflows/           # CI/CD (Docker build & publish)
+├── go.mod / go.sum              # Dependencies
+└── LICENSE
 ```
+
+## 🏗️ Architecture
+- Event-driven flow based on IMAP IDLE (reacts to incoming emails)
+- Pipeline processing: fetch → parse → filter → handle → mark as seen
+- Clear separation between:
+   - domain (`models`)
+   - infrastructure (`imap`, `netflix`, `logging`)
+   - orchestration (`emailprocessor`)
+- Dependency injection via interfaces:
+   - `imap.Client` for email access
+   - `netflix.Browser` for browser automation
+- Service layer (`netflix.Service`) encapsulating business logic
 
 ## 🔧 How It Works
 
 1. **Monitoring**: Uses IMAP IDLE to subscribe for unseen emails from last 15 minutes
 2. **Filtering**: Checks email sender (`targetFrom`) and subject (`targetSubject`)
 3. **Parsing**: Extracts `update-primary-location` links from email body
-4. **Automation**: Opens link in headless browser (Rod + Chromium)
+4. **Automation**: Opens the validation link in a headless browser and completes the confirmation
    - Accepts cookie banners
-   - Detects and fills login forms (if credentials provided)
+   - Detects login requirement and aborts if authentication is needed
    - Clicks confirmation button
    - Detects expired links
 5. **Marking**: Marks email as read only if successfully handled
