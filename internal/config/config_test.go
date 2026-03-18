@@ -13,12 +13,6 @@ func TestLoad(t *testing.T) {
   mailbox: "INBOX"
 targetFrom: "info@test.com"
 targetSubject: "Test Subject"
-filterByAccount: true
-netflixAuth:
-  - email: user1@example.com
-    password: pass1
-  - email: user2@example.com
-    password: pass2
 `
 
 	tmpFile, err := os.CreateTemp("", "config-*.yaml")
@@ -45,17 +39,5 @@ netflixAuth:
 
 	if cfg.TargetFrom != "info@test.com" {
 		t.Errorf("Expected targetFrom 'info@test.com', got '%s'", cfg.TargetFrom)
-	}
-
-	if !cfg.FilterByAccount {
-		t.Error("Expected filterByAccount to be true")
-	}
-
-	if len(cfg.NetflixAuth) != 2 {
-		t.Errorf("Expected 2 Netflix accounts, got %d", len(cfg.NetflixAuth))
-	}
-
-	if cfg.NetflixAuth[0].Email != "user1@example.com" {
-		t.Errorf("Expected first account email 'user1@example.com', got '%s'", cfg.NetflixAuth[0].Email)
 	}
 }

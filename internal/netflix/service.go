@@ -50,31 +50,10 @@ func (s *Service) HandleEmail(email *models.Email) bool {
 			continue
 		}
 
-		// Determine credentials
-		netflixEmail := ""
-		netflixPassword := ""
-
-		if s.config.FilterByAccount {
-			found := false
-			for _, account := range s.config.NetflixAuth {
-				if account.Email == email.ToPrimary {
-					locallog.Infof("Email received for %s", account.Email)
-					netflixEmail = account.Email
-					netflixPassword = account.Password
-					found = true
-					break
-				}
-			}
-			if !found {
-				locallog.Infof("No matching Netflix account found for To: %s", email.ToPrimary)
-				return false
-			}
-		} else {
-			locallog.Infof("Email received for %s", email.ToPrimary)
-		}
+		locallog.Infof("Email received for %s", email.ToPrimary)
 
 		// Open link with browser
-		result, err := s.browser.OpenUpdatePrimaryLocation(link, netflixEmail, netflixPassword, email.TraceID)
+		result, err := s.browser.OpenUpdatePrimaryLocation(link, email.TraceID)
 		if err != nil {
 			locallog.WithError(err).Error("Browser error")
 			return false

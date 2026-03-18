@@ -1,6 +1,7 @@
 package netflix
 
 import (
+	"net/url"
 	"netflix-household-validator/internal/models"
 	"os"
 	"path/filepath"
@@ -23,15 +24,16 @@ func NewRodBrowser() *RodBrowser {
 }
 
 // OpenUpdatePrimaryLocation attempts to open the provided link using Rod, handling login if necessary.
-func (rb *RodBrowser) OpenUpdatePrimaryLocation(link, netflixEmail, netflixPassword string, traceID string) (models.BrowserResult, error) {
+func (rb *RodBrowser) OpenUpdatePrimaryLocation(link, traceID string) (models.BrowserResult, error) {
 	const maxAttempts = 3
 
-	logging.Log.WithField("trace_id", traceID).Info("Open page with rod: ", link)
+	sanitizedLink := sanitizeURL(link)
+	logging.Log.WithField("trace_id", traceID).Info("Open page with rod: ", sanitizedLink)
 
 	for attempt := 1; attempt <= maxAttempts; attempt++ {
 		logging.Log.WithField("trace_id", traceID).Infof("Attempt %d/%d (fresh browser & profile)", attempt, maxAttempts)
 
-		result, err := rb.attemptOpenLink(link, netflixEmail, netflixPassword, attempt, traceID)
+		result, err := rb.attemptOpenLink(link, attempt, traceID)
 		if err != nil {
 			logging.Log.WithField("trace_id", traceID).WithError(err).Warnf("Attempt %d error", attempt)
 		}
@@ -57,8 +59,6 @@ func (rb *RodBrowser) OpenUpdatePrimaryLocation(link, netflixEmail, netflixPassw
 // attemptOpenLink performs a single attempt to open the link and interact with the page.
 func (rb *RodBrowser) attemptOpenLink(
 	link string,
-	netflixEmail string,
-	netflixPassword string,
 	attempt int,
 	traceID string,
 ) (models.BrowserResult, error) {
@@ -109,25 +109,11 @@ func (rb *RodBrowser) attemptOpenLink(
 	}
 
 	// Detect login form
-	loginElement, err := page.Timeout(10 * time.Second).
+	_, err = page.Timeout(10 * time.Second).
 		Element(`input[name='userLoginId']`)
 	if err == nil {
-		if netflixEmail != "" && netflixPassword != "" {
-			locallog.Info("Login fields detected, attempting to log in")
-			loginElement.MustInput(netflixEmail)
-			page.MustElement(`input[name='password']`).MustInput(netflixPassword)
-			page.MustElement(`[data-uia="login-submit-button"]`).MustClick()
-			page.MustWaitLoad()
-
-			// Cookie banner can reappear after login
-			if cookieBtn, err := page.Timeout(5 * time.Second).Element("#onetrust-accept-btn-handler"); err == nil {
-				locallog.Info("Cookie banner detected after login, accepting")
-				cookieBtn.MustClick()
-			}
-		} else {
-			locallog.Info("Login required but credentials unavailable, aborting link")
-			return models.ResultAbort, nil
-		}
+		locallog.Info("Login required but credentials unavailable, aborting link")
+		return models.ResultAbort, nil
 	}
 
 	// Try to find the confirm button: if it exists, the link is valid
@@ -181,4 +167,30 @@ func StartCleanup() {
 			}
 		}
 	}()
+}
+
+// sanitizeURL redacts sensitive query parameters from the URL for safe logging
+func sanitizeURL(raw string) string {
+	u, err := url.Parse(raw)
+	if err != nil {
+		return raw
+	}
+
+	q := u.Query()
+
+	redactKeys := map[string]struct{}{
+		"nftoken": {},
+		"g":       {},
+	}
+
+	for key := range redactKeys {
+		if q.Has(key) {
+			q.Set(key, "******")
+		}
+	}
+
+	u.RawQuery = q.Encode()
+	u.Fragment = ""
+
+	return u.String()
 }

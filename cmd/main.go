@@ -76,7 +76,7 @@ func main() {
 			continue
 		}
 
-		// New mail signalled — loop back to fetch and process
+		// New mail signalled - loop back to fetch and process
 	}
 }
 
