@@ -83,6 +83,11 @@ func (rb *RodBrowser) attemptOpenLink(
 		NoSandbox(true).
 		UserDataDir(tmpDir)
 
+	const systemChromium = "/usr/bin/chromium"
+	if _, err := os.Stat(systemChromium); err == nil {
+		u = u.Bin(systemChromium)
+	}
+
 	launchURL, err := u.Launch()
 	if err != nil {
 		locallog.WithError(err).Error("failed to launch browser")
