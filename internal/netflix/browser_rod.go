@@ -12,6 +12,7 @@ import (
 
 	"github.com/go-rod/rod"
 	"github.com/go-rod/rod/lib/launcher"
+	"github.com/go-rod/rod/lib/proto"
 )
 
 var activeRodSessions atomic.Int32
@@ -55,6 +56,14 @@ func (rb *RodBrowser) OpenUpdatePrimaryLocation(link, traceID string) (models.Br
 	logging.Log.WithField("trace_id", traceID).Warn("All attempts failed, giving up on link")
 	return models.ResultFailed, nil
 }
+
+type pageOutcome int
+
+const (
+	outcomeUnknown pageOutcome = iota
+	outcomeConfirmed
+	outcomeExpired
+)
 
 // attemptOpenLink performs a single attempt to open the link and interact with the page.
 func (rb *RodBrowser) attemptOpenLink(
@@ -113,35 +122,46 @@ func (rb *RodBrowser) attemptOpenLink(
 		cookieBtn.MustClick()
 	}
 
-	// Detect login form
-	_, err = page.Timeout(10 * time.Second).
-		Element(`input[name='userLoginId']`)
-	if err == nil {
-		locallog.Info("Login required but credentials unavailable, aborting link")
-		return models.ResultAbort, nil
+	outcome, err := racePageElements(page, 15*time.Second)
+	if err != nil {
+		locallog.WithError(err).Warnf("Attempt %d: page race failed", attempt)
+		return models.ResultFailed, err
 	}
 
-	// Try to find the confirm button: if it exists, the link is valid
-	confirmBtn, err := page.Timeout(10 * time.Second).
-		Element(`[data-uia="set-primary-location-action"]`)
-	if err == nil {
-		confirmBtn.MustClick()
+	switch outcome {
+	case outcomeConfirmed:
 		locallog.Info("Clicked on confirm button successfully")
 		return models.ResultSuccess, nil
-	}
 
-	locallog.Warnf("Attempt %d: confirm button not found, checking for expired link message", attempt)
-
-	// If confirm button is not found, check for the "invalid / expired" container
-	_, err = page.Timeout(5 * time.Second).
-		Element(`[data-uia="upl-invalid-token"]`)
-	if err == nil {
+	case outcomeExpired:
 		locallog.Info("Expired link detected (upl-invalid-token present)")
 		return models.ResultExpired, nil
 	}
 
-	locallog.Warnf("Attempt %d: confirm button not found and no expired message detected", attempt)
+	locallog.Warnf("Attempt %d: timed out waiting for page elements", attempt)
 	return models.ResultFailed, nil
+}
+
+// racePageElements races between confirm button and expired-token element.
+// Returns the outcome.
+func racePageElements(page *rod.Page, timeout time.Duration) (pageOutcome, error) {
+	outcome := outcomeUnknown
+
+	_, err := page.Timeout(timeout).Race().
+		Element(`[data-uia="set-primary-location-action"]`).Handle(func(e *rod.Element) error {
+		if err := e.Click(proto.InputMouseButtonLeft, 1); err != nil {
+			return err
+		}
+		outcome = outcomeConfirmed
+		return nil
+	}).
+		Element(`[data-uia="upl-invalid-token"]`).Handle(func(e *rod.Element) error {
+		outcome = outcomeExpired
+		return nil
+	}).
+		Do()
+
+	return outcome, err
 }
 
 // StartCleanup starts a background goroutine that cleans up old Rod temp directories
