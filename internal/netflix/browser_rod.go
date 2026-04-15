@@ -63,6 +63,7 @@ const (
 	outcomeUnknown pageOutcome = iota
 	outcomeConfirmed
 	outcomeExpired
+	outcomeLogin
 )
 
 // attemptOpenLink performs a single attempt to open the link and interact with the page.
@@ -136,6 +137,10 @@ func (rb *RodBrowser) attemptOpenLink(
 	case outcomeExpired:
 		locallog.Info("Expired link detected (upl-invalid-token present)")
 		return models.ResultExpired, nil
+
+	case outcomeLogin:
+		locallog.Info("Login required but credentials unavailable, aborting link")
+		return models.ResultAbort, nil
 	}
 
 	locallog.Warnf("Attempt %d: timed out waiting for page elements", attempt)
@@ -157,6 +162,10 @@ func racePageElements(page *rod.Page, timeout time.Duration) (pageOutcome, error
 	}).
 		Element(`[data-uia="upl-invalid-token"]`).Handle(func(e *rod.Element) error {
 		outcome = outcomeExpired
+		return nil
+	}).
+		Element(`input[name='userLoginId']`).Handle(func(e *rod.Element) error {
+		outcome = outcomeLogin
 		return nil
 	}).
 		Do()
