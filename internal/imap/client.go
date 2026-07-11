@@ -88,7 +88,7 @@ func (c *StandardClient) FetchMessage(uid uint32) (*imap.Message, error) {
 	seqSet := new(imap.SeqSet)
 	seqSet.AddNum(uid)
 
-	section := &imap.BodySectionName{}
+	section := &imap.BodySectionName{Peek: true}
 	items := []imap.FetchItem{section.FetchItem(), imap.FetchInternalDate, imap.FetchUid}
 
 	prevTimeout := c.client.Timeout
