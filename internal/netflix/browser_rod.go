@@ -1,6 +1,7 @@
 package netflix
 
 import (
+	"fmt"
 	"net/url"
 	"netflix-household-validator/internal/models"
 	"os"
@@ -71,11 +72,21 @@ func (rb *RodBrowser) attemptOpenLink(
 	link string,
 	attempt int,
 	traceID string,
-) (models.BrowserResult, error) {
+) (result models.BrowserResult, err error) {
 	activeRodSessions.Add(1)
 	defer activeRodSessions.Add(-1)
 
 	locallog := logging.Log.WithField("trace_id", traceID)
+
+	// Recover from any panic in the browser automation so a single bad link
+	// can never crash the whole validator / IMAP loop.
+	defer func() {
+		if r := recover(); r != nil {
+			locallog.Errorf("Recovered from panic in attemptOpenLink: %v", r)
+			result = models.ResultFailed
+			err = fmt.Errorf("panic in browser automation: %v", r)
+		}
+	}()
 
 	tmpDir, err := os.MkdirTemp("", "rod-netflix-*")
 	if err != nil {
@@ -112,15 +123,23 @@ func (rb *RodBrowser) attemptOpenLink(
 		return models.ResultFailed, err
 	}
 
-	page := browser.MustPage(link)
+	page, err := browser.Page(proto.TargetCreateTarget{URL: link})
+	if err != nil {
+		locallog.WithError(err).Error("failed to open page")
+		return models.ResultFailed, err
+	}
 	defer func() { _ = page.Close() }()
 
-	page.MustWaitLoad()
+	if err := page.WaitLoad(); err != nil {
+		locallog.WithError(err).Warnf("Attempt %d: wait load failed (navigation may have been redirected)", attempt)
+	}
 
 	// Try to accept cookie banner if present
 	if cookieBtn, err := page.Timeout(5 * time.Second).Element("#onetrust-accept-btn-handler"); err == nil {
 		locallog.Info("Cookie banner detected, accepting")
-		cookieBtn.MustClick()
+		if clickErr := cookieBtn.Click(proto.InputMouseButtonLeft, 1); clickErr != nil {
+			locallog.WithError(clickErr).Warn("Failed to click cookie banner")
+		}
 	}
 
 	outcome, err := racePageElements(page, 15*time.Second)
