@@ -123,12 +123,24 @@ func (rb *RodBrowser) attemptOpenLink(
 		return models.ResultFailed, err
 	}
 
-	page, err := browser.Page(proto.TargetCreateTarget{URL: link})
+	// Create an empty page first. Creating the target with the URL up front
+	// (browser.Page(URL)) requires the initial navigation to complete, which
+	// fails with net::ERR_ABORTED as soon as Netflix redirects (login, expired
+	// or already-consumed token). An empty page avoids that so we can navigate
+	// ourselves and let racePageElements decide the real outcome below.
+	page, err := browser.Page(proto.TargetCreateTarget{})
 	if err != nil {
-		locallog.WithError(err).Error("failed to open page")
+		locallog.WithError(err).Error("failed to create page")
 		return models.ResultFailed, err
 	}
 	defer func() { _ = page.Close() }()
+
+	// Navigate to the link. An aborted navigation (net::ERR_ABORTED) is not
+	// fatal here: the page may still have been redirected to a confirm, login
+	// or expired-token page. racePageElements below will tell which.
+	if err := page.Navigate(link); err != nil {
+		locallog.WithError(err).Warnf("Attempt %d: navigation aborted (redirect or invalid link), checking page state", attempt)
+	}
 
 	if err := page.WaitLoad(); err != nil {
 		locallog.WithError(err).Warnf("Attempt %d: wait load failed (navigation may have been redirected)", attempt)
