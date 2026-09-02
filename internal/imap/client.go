@@ -13,6 +13,7 @@ import (
 
 type StandardClient struct {
 	client  *client.Client
+	conn    net.Conn
 	timeout time.Duration
 }
 
@@ -40,6 +41,7 @@ func (c *StandardClient) Connect(server string) error {
 		_ = conn.Close()
 		return fmt.Errorf("IMAP connection error: %w", err)
 	}
+	c.conn = conn
 	c.client = cl
 	return nil
 }
@@ -80,7 +82,7 @@ func (c *StandardClient) ListUnseenUIDs(since time.Duration) ([]uint32, error) {
 }
 
 // FetchMessage retrieves the full email message corresponding to the specified UID. It returns an imap.Message struct containing the email data and an error if the fetch operation fails, if there is no active connection, or if no message is retrieved for the given UID.
-func (c *StandardClient) FetchMessage(uid uint32) (*imap.Message, error) {
+func (c *StandardClient) FetchMessage(uid uint32) (msg *imap.Message, err error) {
 	if c.client == nil {
 		return nil, fmt.Errorf("not connected")
 	}
@@ -93,7 +95,17 @@ func (c *StandardClient) FetchMessage(uid uint32) (*imap.Message, error) {
 
 	prevTimeout := c.client.Timeout
 	c.client.Timeout = c.timeout
-	defer func() { c.client.Timeout = prevTimeout }()
+	conn := c.conn
+	defer func() {
+		c.client.Timeout = prevTimeout
+		// go-imap applies Client.Timeout with SetDeadline when a command starts.
+		// Restoring the field alone does not clear that deadline until another
+		// command is issued, while go-imap's reader keeps using the connection.
+		if clearErr := conn.SetDeadline(time.Time{}); err == nil && clearErr != nil {
+			msg = nil
+			err = fmt.Errorf("error clearing IMAP deadline after fetching UID %d: %w", uid, clearErr)
+		}
+	}()
 
 	messages := make(chan *imap.Message, 1)
 	done := make(chan error, 1)
@@ -102,7 +114,6 @@ func (c *StandardClient) FetchMessage(uid uint32) (*imap.Message, error) {
 		done <- c.client.Fetch(seqSet, items, messages)
 	}()
 
-	var msg *imap.Message
 	for m := range messages {
 		msg = m
 	}
@@ -140,6 +151,7 @@ func (c *StandardClient) Close() error {
 	}
 	err := c.client.Logout()
 	c.client = nil
+	c.conn = nil
 	return err
 }
 

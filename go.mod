@@ -1,6 +1,6 @@
 module netflix-household-validator
 
-go 1.26
+go 1.27
 
 require (
 	github.com/emersion/go-imap v1.2.1
