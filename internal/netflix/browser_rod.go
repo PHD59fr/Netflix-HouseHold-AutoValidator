@@ -1,6 +1,7 @@
 package netflix
 
 import (
+	"context"
 	"fmt"
 	"net/url"
 	"netflix-household-validator/internal/models"
@@ -154,7 +155,7 @@ func (rb *RodBrowser) attemptOpenLink(
 		}
 	}
 
-	outcome, err := racePageElements(page, 15*time.Second)
+	outcome, err := racePageElements(page, 30*time.Second)
 	if err != nil {
 		locallog.WithError(err).Warnf("Attempt %d: page race failed", attempt)
 		return models.ResultFailed, err
@@ -181,27 +182,118 @@ func (rb *RodBrowser) attemptOpenLink(
 // racePageElements races between confirm button and expired-token element.
 // Returns the outcome.
 func racePageElements(page *rod.Page, timeout time.Duration) (pageOutcome, error) {
-	outcome := outcomeUnknown
+	deadline := time.Now().Add(timeout)
 
-	_, err := page.Timeout(timeout).Race().
-		Element(`[data-uia="set-primary-location-action"]`).Handle(func(e *rod.Element) error {
-		if err := e.Click(proto.InputMouseButtonLeft, 1); err != nil {
-			return err
+	for time.Now().Before(deadline) {
+		state, err := page.Eval(`() => {
+const visible = (element) => {
+if (!element) {
+return false;
+}
+
+const style = window.getComputedStyle(element);
+const rect = element.getBoundingClientRect();
+
+return style.display !== "none" &&
+style.visibility !== "hidden" &&
+rect.width > 0 &&
+rect.height > 0;
+};
+
+const confirm = document.querySelector(
+'[data-uia="set-primary-location-action"]'
+);
+
+const expired = document.querySelector(
+'[data-uia="upl-invalid-token"]'
+);
+
+const login = document.querySelector(
+'input[name="userLoginId"]'
+);
+
+return {
+confirmExists: Boolean(confirm),
+confirmVisible: visible(confirm),
+expiredExists: Boolean(expired),
+loginExists: Boolean(login)
+};
+}`)
+
+		if err == nil && state != nil {
+			var current struct {
+				ConfirmExists  bool `json:"confirmExists"`
+				ConfirmVisible bool `json:"confirmVisible"`
+				ExpiredExists  bool `json:"expiredExists"`
+				LoginExists    bool `json:"loginExists"`
+			}
+
+			if err := state.Value.Unmarshal(&current); err == nil {
+				if current.ExpiredExists {
+					return outcomeExpired, nil
+				}
+
+				if current.LoginExists {
+					return outcomeLogin, nil
+				}
+
+				if current.ConfirmExists {
+					logging.Log.Infof(
+						"Netflix confirm button detected: visible=%t",
+						current.ConfirmVisible,
+					)
+
+					clickResult, err := page.Eval(`() => {
+const button = document.querySelector(
+'[data-uia="set-primary-location-action"]'
+);
+
+if (!button) {
+return {
+ok: false,
+error: "confirmation button not found"
+};
+}
+
+button.scrollIntoView({
+block: "center",
+inline: "center"
+});
+
+button.click();
+
+return {
+ok: true,
+text: (button.innerText || "").trim()
+};
+}`)
+
+					if err != nil {
+						return outcomeUnknown, fmt.Errorf(
+							"JavaScript confirmation click failed: %w",
+							err,
+						)
+					}
+
+					if clickResult == nil {
+						return outcomeUnknown, fmt.Errorf(
+							"JavaScript confirmation click returned no result",
+						)
+					}
+
+					logging.Log.Info(
+						"Netflix confirmation button clicked via JavaScript",
+					)
+
+					return outcomeConfirmed, nil
+				}
+			}
 		}
-		outcome = outcomeConfirmed
-		return nil
-	}).
-		Element(`[data-uia="upl-invalid-token"]`).Handle(func(e *rod.Element) error {
-		outcome = outcomeExpired
-		return nil
-	}).
-		Element(`input[name='userLoginId']`).Handle(func(e *rod.Element) error {
-		outcome = outcomeLogin
-		return nil
-	}).
-		Do()
 
-	return outcome, err
+		time.Sleep(250 * time.Millisecond)
+	}
+
+	return outcomeUnknown, context.DeadlineExceeded
 }
 
 // StartCleanup starts a background goroutine that cleans up old Rod temp directories
