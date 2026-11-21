@@ -201,7 +201,7 @@ rect.height > 0;
 };
 
 const confirm = document.querySelector(
-'[data-uia="set-primary-location-action"]'
+'[data-uia="update-household-confirm-cta"], [data-uia="set-primary-location-action"]'
 );
 
 const expired = document.querySelector(
@@ -245,7 +245,7 @@ loginExists: Boolean(login)
 
 					clickResult, err := page.Eval(`() => {
 const button = document.querySelector(
-'[data-uia="set-primary-location-action"]'
+'[data-uia="update-household-confirm-cta"], [data-uia="set-primary-location-action"]'
 );
 
 if (!button) {
