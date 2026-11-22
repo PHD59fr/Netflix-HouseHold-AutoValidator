@@ -1,6 +1,7 @@
 package netflix
 
 import (
+	"context"
 	"netflix-household-validator/internal/models"
 	"testing"
 	"time"
@@ -11,7 +12,7 @@ type MockBrowser struct {
 	Err    error
 }
 
-func (m *MockBrowser) OpenUpdatePrimaryLocation(_, _ string) (models.BrowserResult, error) {
+func (m *MockBrowser) OpenUpdatePrimaryLocation(_ context.Context, _, _ string) (models.BrowserResult, error) {
 	return m.Result, m.Err
 }
 
@@ -32,7 +33,7 @@ func TestHandleEmail_FilterBySender(t *testing.T) {
 		TraceID:   "test-trace",
 	}
 
-	handled := svc.HandleEmail(email)
+	handled := svc.HandleEmail(context.Background(), email)
 	if handled {
 		t.Error("Expected email to be rejected due to wrong sender")
 	}
@@ -55,7 +56,7 @@ func TestHandleEmail_FilterBySubject(t *testing.T) {
 		TraceID:   "test-trace",
 	}
 
-	handled := svc.HandleEmail(email)
+	handled := svc.HandleEmail(context.Background(), email)
 	if handled {
 		t.Error("Expected email to be rejected due to wrong subject")
 	}
@@ -78,7 +79,7 @@ func TestHandleEmail_EmptyBody(t *testing.T) {
 		TraceID:   "test-trace",
 	}
 
-	handled := svc.HandleEmail(email)
+	handled := svc.HandleEmail(context.Background(), email)
 	if handled {
 		t.Error("Expected email to be rejected due to empty body")
 	}
@@ -101,7 +102,7 @@ func TestHandleEmail_NoUpdateLink(t *testing.T) {
 		TraceID:   "test-trace",
 	}
 
-	handled := svc.HandleEmail(email)
+	handled := svc.HandleEmail(context.Background(), email)
 	if handled {
 		t.Error("Expected email to be rejected due to missing update-primary-location link")
 	}
@@ -125,7 +126,7 @@ func TestHandleEmail_Success(t *testing.T) {
 		InternalDate: time.Now(),
 	}
 
-	handled := svc.HandleEmail(email)
+	handled := svc.HandleEmail(context.Background(), email)
 	if !handled {
 		t.Error("Expected email to be handled successfully")
 	}
@@ -148,7 +149,7 @@ func TestHandleEmail_BrowserResultExpired(t *testing.T) {
 		TraceID:   "test-trace",
 	}
 
-	handled := svc.HandleEmail(email)
+	handled := svc.HandleEmail(context.Background(), email)
 	if !handled {
 		t.Error("Expected expired result to be treated as handled")
 	}
@@ -171,7 +172,7 @@ func TestHandleEmail_BrowserResultAbort(t *testing.T) {
 		TraceID:   "test-trace",
 	}
 
-	handled := svc.HandleEmail(email)
+	handled := svc.HandleEmail(context.Background(), email)
 	if handled {
 		t.Error("Expected abort result to return false")
 	}

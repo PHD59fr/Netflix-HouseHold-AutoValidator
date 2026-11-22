@@ -20,15 +20,15 @@ This application monitors an IMAP mailbox for Netflix emails containing househol
 **Edit the `config.yaml` file at the root of the project with the following structure:**
 
 ```yaml
-   email:
-     imap: "imap.example.com:993"
-     login: "your-email@example.com"
-     password: "your-email-password"
-     mailbox: "INBOX"
-   targetFrom: "info@account.netflix.com"
-   targetSubject: "Important : comment mettre à jour votre foyer Netflix"
+email:
+  imap: "imap.example.com:993"
+  login: "your-email@example.com"
+  password: "your-email-password"
+  mailbox: "INBOX"
+targetFrom: "info@account.netflix.com"
+targetSubject: "Important : comment mettre à jour votre foyer Netflix"
 ```
-**Note:** Make sure to replace the values with your own information.
+**Note:** Make sure to replace the values with your own information. All fields are validated at startup (required values and `imap` in `host:port` format), so the process fails fast instead of reconnecting with empty credentials. The application reads `config.yaml` by default when it exists. If it is absent, provide every value through environment variables. Use `-config /path/to/config.yaml` to load a different file. The example subject uses a non-breaking space (U+00A0) before the colon, exactly as Netflix sends it — copy it as-is or the filter will not match.
 
 ## 🚀 Usage
 
@@ -40,6 +40,9 @@ go mod download
 
 # Run
 go run ./cmd/main.go
+
+# Run with a custom config file
+go run ./cmd/main.go -config /path/to/config.yaml
 
 # Build
 go build -o validator ./cmd/main.go
@@ -66,13 +69,15 @@ go test ./...
 docker pull phd59fr/netflix-household-autovalidator
 
 # Run with volume-mounted yaml config
-docker run -v $(pwd)/config.yaml:/app/config.yaml phd59fr/netflix-household-autovalidator
+# The binary reads /config.yaml inside the container when it is mounted.
+docker run -v $(pwd)/config.yaml:/config.yaml phd59fr/netflix-household-autovalidator
 
-# Run with environment variables (overrides config.yaml)
+# Run without a config file, using environment variables only
 docker run \
   -e EMAIL_IMAP=imap.example.com:993 \
   -e EMAIL_LOGIN=your-email@example.com \
   -e EMAIL_PASSWORD=your-password \
+  -e EMAIL_MAILBOX=INBOX \
   -e TARGET_FROM=info@account.netflix.com \
   -e TARGET_SUBJECT="Important : comment mettre à jour votre foyer Netflix" \
   phd59fr/netflix-household-autovalidator
@@ -104,7 +109,7 @@ go build -o validator ./cmd/main.go
 │   ├── mailparse/               # Email parsing & link extraction
 │   ├── models/                  # Domain models (Config, Email, BrowserResult)
 │   └── netflix/                 # Netflix service & browser automation
-├── config.yaml                  # Optional YAML configuration
+├── config.yaml                  # Default YAML configuration (-config overrides the path)
 ├── Dockerfile                   # Container build
 ├── .github/workflows/           # CI/CD (Docker build & publish)
 ├── go.mod / go.sum              # Dependencies
@@ -125,7 +130,7 @@ go build -o validator ./cmd/main.go
 
 ## 🔧 How It Works
 
-1. **Monitoring**: Uses IMAP IDLE to subscribe for unseen emails from last 15 minutes
+1. **Monitoring**: Uses IMAP IDLE to subscribe for unseen emails from last 15 minutes, with a periodic safety poll so an email is not missed while the browser is busy
 2. **Filtering**: Checks email sender (`targetFrom`) and subject (`targetSubject`)
 3. **Parsing**: Extracts `update-primary-location` links from email body
 4. **Automation**: Opens the validation link in a headless browser and completes the confirmation

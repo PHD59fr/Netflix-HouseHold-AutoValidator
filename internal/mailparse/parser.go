@@ -25,7 +25,7 @@ func Parse(msg *imap.Message) (*models.Email, error) {
 	}
 
 	email := &models.Email{
-		UID:          msg.SeqNum,
+		UID:          msg.Uid,
 		InternalDate: msg.InternalDate,
 		TraceID:      uuid.New().String(),
 	}

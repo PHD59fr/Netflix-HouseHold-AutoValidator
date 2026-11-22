@@ -1,6 +1,7 @@
 package netflix
 
 import (
+	"context"
 	"netflix-household-validator/internal/models"
 	"strings"
 
@@ -22,7 +23,7 @@ func NewService(browser Browser, cfg *models.Config) *Service {
 }
 
 // HandleEmail processes the given email, applying filters and using the browser to handle valid emails.
-func (s *Service) HandleEmail(email *models.Email) bool {
+func (s *Service) HandleEmail(ctx context.Context, email *models.Email) bool {
 	locallog := logging.Log.WithField("trace_id", email.TraceID)
 
 	// Filter by sender
@@ -53,7 +54,7 @@ func (s *Service) HandleEmail(email *models.Email) bool {
 		locallog.Infof("Email received for %s", email.ToPrimary)
 
 		// Open link with browser
-		result, err := s.browser.OpenUpdatePrimaryLocation(link, email.TraceID)
+		result, err := s.browser.OpenUpdatePrimaryLocation(ctx, link, email.TraceID)
 		if err != nil {
 			locallog.WithError(err).Error("Browser error")
 			return false
