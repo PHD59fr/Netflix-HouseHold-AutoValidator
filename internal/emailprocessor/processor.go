@@ -1,6 +1,7 @@
 package emailprocessor
 
 import (
+	"context"
 	"netflix-household-validator/internal/mailparse"
 	"time"
 
@@ -41,7 +42,11 @@ func NewProcessor(imapClient imapclient.Client, netflixService *netflix.Service)
 // ProcessEmail orchestrates the complete email processing workflow:
 // fetch → parse → validate age → handle → mark as seen
 // Returns a boolean indicating if the email was successfully handled and should update stats
-func (p *Processor) ProcessEmail(uid uint32) (handled bool, ignored bool, err error) {
+func (p *Processor) ProcessEmail(ctx context.Context, uid uint32) (handled bool, ignored bool, err error) {
+	if err := ctx.Err(); err != nil {
+		return false, false, err
+	}
+
 	// Fetch message from IMAP
 	msg, err := p.imapClient.FetchMessage(uid)
 	if err != nil {
@@ -63,8 +68,12 @@ func (p *Processor) ProcessEmail(uid uint32) (handled bool, ignored bool, err er
 		return false, false, nil
 	}
 
+	if err := ctx.Err(); err != nil {
+		return false, false, err
+	}
+
 	// Handle email with Netflix service (filters, browser automation)
-	handled = p.netflixService.HandleEmail(email)
+	handled = p.netflixService.HandleEmail(ctx, email)
 
 	// Mark as seen only if successfully handled
 	if handled {

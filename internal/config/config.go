@@ -27,6 +27,10 @@ func Load(filepath string) (*models.Config, error) {
 	// Override with environment variables if set
 	overrideFromEnv(&cfg)
 
+	if err := cfg.Validate(); err != nil {
+		return nil, err
+	}
+
 	return &cfg, nil
 }
 

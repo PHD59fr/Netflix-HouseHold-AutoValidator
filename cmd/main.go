@@ -3,6 +3,8 @@ package main
 import (
 	"context"
 	"errors"
+	"flag"
+	"fmt"
 	"os"
 	"os/signal"
 	"sync/atomic"
@@ -19,12 +21,24 @@ import (
 
 var imapFailureCount atomic.Int32
 
-const failureSleepDuration = 30 * time.Minute
+const (
+	failureSleepDuration = 30 * time.Minute
+	maxEmailsPerCycle    = 100
+)
 
 func main() {
-	cfg, err := config.Load("config.yaml")
+	// The default path also matches the Docker image, where WORKDIR is "/".
+	configPath := flag.String("config", "config.yaml", "path to the YAML configuration file")
+	flag.Parse()
+
+	cfg, err := config.Load(*configPath)
+	if errors.Is(err, os.ErrNotExist) && *configPath == "config.yaml" {
+		// The default file is optional when all settings come from the
+		// environment. An explicitly named alternate file must still exist.
+		cfg, err = config.Load("")
+	}
 	if err != nil {
-		logging.Log.Fatalf("Error reading configuration file: %v", err)
+		logging.Log.Fatalf("Invalid configuration: %v", err)
 	}
 
 	logging.Log.Info("Starting Netflix email verification process (IMAP IDLE mode)")
@@ -41,107 +55,183 @@ func main() {
 
 	// Create persistent IMAP client
 	client := imapclient.NewStandardClient()
+	defer func() { _ = client.Close() }()
+
 	connected := false
+	processed := make(map[uint32]struct{})
 
 	for {
+		if ctx.Err() != nil {
+			logging.Log.Info("Shutting down gracefully")
+			return
+		}
+
 		if !connected {
-			if err := connectAndAuthenticate(client, cfg); err != nil {
-				handleIMAPFailure(err)
+			if err := connectAndAuthenticate(ctx, client, cfg); err != nil {
+				handleIMAPFailure(ctx, err)
 				continue
 			}
 			connected = true
-			imapFailureCount.Store(0)
+			processed = make(map[uint32]struct{})
 		}
 
-		// Process any emails that arrived before or during connection setup
-		fetchAndProcessEmails(client, netflixService, cfg)
-
-		// Ensure mailbox is selected before entering IDLE (fetchAndProcessEmails may have failed early)
-		if err := client.SelectMailbox(cfg.Email.MailBox); err != nil {
-			logging.Log.Errorf("Failed to select mailbox: %v", err)
+		// Process all emails that arrived before or during connection setup.
+		// This also drains emails that arrived while the browser was busy.
+		more, err := fetchAndProcessEmails(ctx, client, netflixService, processed)
+		if err != nil {
 			connected = false
 			_ = client.Close()
-			continue
-		}
 
-		// Block until the server notifies us of new mail via IMAP IDLE
-		if err := client.WaitForNewMail(ctx); err != nil {
-			connected = false
-			_ = client.Close()
 			if errors.Is(err, context.Canceled) {
 				logging.Log.Info("Shutting down gracefully")
 				return
 			}
-			handleIMAPFailure(err)
+
+			handleIMAPFailure(ctx, err)
+			continue
+		}
+		if more {
+			// Resume immediately with the same UID set so earlier ignored or
+			// failed messages cannot starve the rest of the mailbox.
+			continue
+		}
+		processed = make(map[uint32]struct{})
+
+		// Block until the server notifies us of new mail via IMAP IDLE, or
+		// until the periodic safety poll asks for a new scan.
+		if err := client.WaitForNewMail(ctx); err != nil {
+			connected = false
+			_ = client.Close()
+
+			if errors.Is(err, context.Canceled) {
+				logging.Log.Info("Shutting down gracefully")
+				return
+			}
+
+			handleIMAPFailure(ctx, err)
 			continue
 		}
 
-		// New mail signalled - loop back to fetch and process
+		// A full IDLE session (or a periodic poll) completed without error:
+		// the connection is stable, so the backoff can be reset.
+		imapFailureCount.Store(0)
 	}
 }
 
 // connectAndAuthenticate establishes connection and authenticates with IMAP server
-func connectAndAuthenticate(client *imapclient.StandardClient, cfg *models.Config) error {
+func connectAndAuthenticate(ctx context.Context, client *imapclient.StandardClient, cfg *models.Config) error {
 	// Connect
-	if err := client.Connect(cfg.Email.Imap); err != nil {
+	if err := client.Connect(ctx, cfg.Email.Imap); err != nil {
 		return err
 	}
 
 	// Login
-	if err := client.Login(cfg.Email.Login, cfg.Email.Password); err != nil {
+	if err := client.Login(ctx, cfg.Email.Login, cfg.Email.Password); err != nil {
 		_ = client.Close()
 		return err
+	}
+
+	// Select the mailbox once per connection. Re-selecting on every cycle
+	// makes go-imap report the SELECT's EXISTS response as a mailbox update,
+	// which would immediately wake IDLE again and create a busy loop.
+	if err := client.SelectMailbox(cfg.Email.MailBox); err != nil {
+		_ = client.Close()
+		return fmt.Errorf("select mailbox %q: %w", cfg.Email.MailBox, err)
 	}
 
 	logging.Log.Info("IMAP connection established successfully")
 	return nil
 }
 
-// fetchAndProcessEmails retrieves unseen emails and processes them using the existing connection
-func fetchAndProcessEmails(client *imapclient.StandardClient, netflixService *netflix.Service, cfg *models.Config) {
+// fetchAndProcessEmails retrieves unseen emails and processes them using the existing connection.
+// It keeps scanning until no new UID appears, so an email that arrives while a
+// previous email is being handled by the browser is not missed.
+func fetchAndProcessEmails(
+	ctx context.Context,
+	client imapclient.Client,
+	netflixService *netflix.Service,
+	processed map[uint32]struct{},
+) (more bool, err error) {
 	startTime := time.Now()
 
-	// Select mailbox
-	if err := client.SelectMailbox(cfg.Email.MailBox); err != nil {
-		logging.Log.Errorf("Folder selection error: %v", err)
-		return
-	}
-
-	// List unseen emails from last 15 minutes
-	uids, err := client.ListUnseenUIDs(emailprocessor.EmailValidityWindow)
-	if err != nil {
-		logging.Log.Errorf("Error searching for recent emails: %v", err)
-		return
-	}
-
-	if len(uids) == 0 {
-		return
-	}
-
-	logging.Log.Infof("Found %d unseen email(s) to process", len(uids))
-
-	// Initialize statistics
-	stats := emailprocessor.ProcessingStats{
-		Total: len(uids),
-	}
+	// The mailbox is already selected by connectAndAuthenticate. Selecting it
+	// again here would make go-imap report the SELECT's EXISTS response as a
+	// mailbox update and immediately wake IDLE, creating a busy loop.
 
 	// Create email processor
 	processor := emailprocessor.NewProcessor(client, netflixService)
+	stats := emailprocessor.ProcessingStats{}
+	for {
+		if err := ctx.Err(); err != nil {
+			return false, err
+		}
 
-	// Process all unseen emails
-	for _, uid := range uids {
-		handled, ignored, err := processor.ProcessEmail(uid)
+		// List unseen emails from last 15 minutes
+		uids, err := client.ListUnseenUIDs(emailprocessor.EmailValidityWindow)
 		if err != nil {
-			logging.Log.Errorf("Error processing email UID %d: %v", uid, err)
-			stats.Failed++
-			continue
+			return false, fmt.Errorf("list unseen emails: %w", err)
 		}
 
-		if handled {
-			stats.Processed++
-		} else if ignored {
-			stats.Ignored++
+		batch := make([]uint32, 0, len(uids))
+		for _, uid := range uids {
+			if _, alreadyProcessed := processed[uid]; !alreadyProcessed {
+				batch = append(batch, uid)
+			}
 		}
+
+		if len(batch) == 0 {
+			break
+		}
+
+		remaining := maxEmailsPerCycle - stats.Total
+		if remaining == 0 {
+			logging.Log.Warnf(
+				"Reached the limit of %d emails for this cycle; continuing immediately",
+				maxEmailsPerCycle,
+			)
+			more = true
+			break
+		}
+		if len(batch) > remaining {
+			batch = batch[:remaining]
+			more = true
+		}
+
+		stats.Total += len(batch)
+		logging.Log.Infof("Found %d new unseen email(s) to process", len(batch))
+
+		for _, uid := range batch {
+			if err := ctx.Err(); err != nil {
+				return false, err
+			}
+
+			processed[uid] = struct{}{}
+
+			handled, ignored, err := processor.ProcessEmail(ctx, uid)
+			if err != nil {
+				if errors.Is(err, context.Canceled) {
+					return false, err
+				}
+
+				logging.Log.Errorf("Error processing email UID %d: %v", uid, err)
+				stats.Failed++
+				continue
+			}
+
+			switch {
+			case handled:
+				stats.Processed++
+			case ignored:
+				stats.Ignored++
+			}
+		}
+		if more {
+			break
+		}
+	}
+
+	if stats.Total == 0 {
+		return more, nil
 	}
 
 	// Log summary
@@ -154,11 +244,15 @@ func fetchAndProcessEmails(client *imapclient.StandardClient, netflixService *ne
 		stats.Ignored,
 		stats.Failed,
 	)
+
+	return more, nil
 }
 
 // handleIMAPFailure increments the failure count and implements an exponential backoff strategy.
 // First failure reconnects immediately; subsequent failures use exponential backoff.
-func handleIMAPFailure(err error) {
+// The wait is interrupted when ctx is cancelled so SIGTERM does not hang for up
+// to 30 minutes.
+func handleIMAPFailure(ctx context.Context, err error) {
 	failures := imapFailureCount.Add(1)
 	logging.Log.Errorf("IMAP connection error: %v", err)
 
@@ -186,5 +280,12 @@ func handleIMAPFailure(err error) {
 	}
 
 	logging.Log.Warnf("IMAP failed %d times, waiting %s before next attempt", failures, backoff)
-	time.Sleep(backoff)
+
+	timer := time.NewTimer(backoff)
+	defer timer.Stop()
+
+	select {
+	case <-ctx.Done():
+	case <-timer.C:
+	}
 }
