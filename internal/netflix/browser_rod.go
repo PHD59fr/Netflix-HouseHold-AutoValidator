@@ -2,6 +2,7 @@ package netflix
 
 import (
 	"context"
+	"errors"
 	"fmt"
 	"net/url"
 	"netflix-household-validator/internal/models"
@@ -40,8 +41,7 @@ func NewRodBrowser() *RodBrowser {
 
 // OpenUpdatePrimaryLocation attempts to open the provided link using Rod, handling login if necessary.
 func (rb *RodBrowser) OpenUpdatePrimaryLocation(ctx context.Context, link, traceID string) (models.BrowserResult, error) {
-	sanitizedLink := sanitizeURL(link)
-	logging.Log.WithField("trace_id", traceID).Info("Open page with rod: ", sanitizedLink)
+	logging.Log.WithField("trace_id", traceID).Info("Opening Netflix confirmation page")
 
 	for attempt := 1; attempt <= maxOpenAttempts; attempt++ {
 		if err := ctx.Err(); err != nil {
@@ -289,23 +289,36 @@ url: location.href
 	return &current, nil
 }
 
-// clickConfirmButton clicks the confirmation button with a real mouse event.
-// Rod scrolls the element into view, waits for it to be enabled and fails if
-// another element covers it.
-func clickConfirmButton(page *rod.Page) error {
+// Recheck the live target in the same JS task as activation. A navigation
+// can destroy the execution context before Chromium acknowledges the call.
+func clickConfirmButton(page *rod.Page) (bool, string) {
 	ctx, cancel := context.WithTimeout(page.GetContext(), evaluationTimeout)
 	defer cancel()
-
 	button, err := page.Context(ctx).Element(confirmButtonSelector)
 	if err != nil {
-		return fmt.Errorf("find confirmation button: %w", err)
+		return false, "target lookup failed"
 	}
-
-	if err := button.Context(ctx).Click(proto.InputMouseButtonLeft, 1); err != nil {
-		return fmt.Errorf("click confirmation button: %w", err)
+	// Binding the evaluation to this element also prevents Rod from replaying
+	// the activation in a new document if the execution context disappears.
+	res, err := button.Eval(`() => {
+        const button = this;
+        if (!button.isConnected) return "detached";
+        if (button.matches(":disabled, [aria-disabled=true], .disabled")) return "disabled";
+        button.scrollIntoView({block: "center", inline: "nearest", behavior: "instant"});
+        const rect = button.getBoundingClientRect();
+        const hit = document.elementFromPoint(rect.left + rect.width/2, rect.top + rect.height/2);
+        if (!hit || !button.contains(hit)) return "covered or outside viewport";
+        button.click();
+        return "dispatched";
+    }`)
+	if err != nil {
+		if errors.Is(err, context.DeadlineExceeded) {
+			return true, "evaluation timed out; delivery unknown"
+		}
+		return true, "evaluation interrupted; delivery unknown"
 	}
-
-	return nil
+	status := res.Value.Str()
+	return status == "dispatched", status
 }
 
 // racePageElements waits for the confirm button, clicks it only when it is
@@ -315,23 +328,23 @@ func racePageElements(page *rod.Page, timeout time.Duration, traceID string) (pa
 	locallog := logging.Log.WithField("trace_id", traceID)
 	deadline := time.Now().Add(timeout)
 
-	clicked := false
+	awaitingConfirmation := false
 	var clickedAt time.Time
 
 	for {
 		if ctxErr := page.GetContext().Err(); ctxErr != nil {
 			return outcomeUnknown, ctxErr
 		}
-		if !clicked && time.Now().After(deadline) {
+		if !awaitingConfirmation && time.Now().After(deadline) {
 			return outcomeUnknown, context.DeadlineExceeded
 		}
-		if clicked && time.Since(clickedAt) > confirmationTimeout {
+		if awaitingConfirmation && time.Since(clickedAt) > confirmationTimeout {
 			return outcomeUnknown, fmt.Errorf("no explicit Netflix confirmation within %s of click", confirmationTimeout)
 		}
 
 		state, err := readPageState(page)
 		if err != nil {
-			locallog.WithError(err).Debug("Failed to read Netflix page state")
+			locallog.Debugf("Netflix page state unavailable (%T)", err)
 			time.Sleep(250 * time.Millisecond)
 			continue
 		}
@@ -346,7 +359,7 @@ func racePageElements(page *rod.Page, timeout time.Duration, traceID string) (pa
 			return outcomeLogin, nil
 		}
 
-		if !clicked {
+		if !awaitingConfirmation {
 			if state.ConfirmExists && state.ConfirmVisible && state.ConfirmEnabled {
 				locallog.Infof(
 					"Netflix confirm button detected: visible=%t enabled=%t",
@@ -354,12 +367,14 @@ func racePageElements(page *rod.Page, timeout time.Duration, traceID string) (pa
 					state.ConfirmEnabled,
 				)
 
-				if err := clickConfirmButton(page); err != nil {
-					locallog.WithError(err).Warn("Failed to click Netflix confirmation button")
-				} else {
-					clicked = true
+				started := time.Now()
+				attempted, status := clickConfirmButton(page)
+				if status != "dispatched" {
+					locallog.Warnf("Netflix confirmation click: %s (elapsed %s)", status, time.Since(started).Round(time.Millisecond))
+				}
+				if attempted {
+					awaitingConfirmation = true
 					clickedAt = time.Now()
-					locallog.Info("Netflix confirmation button clicked")
 				}
 			}
 
